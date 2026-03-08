@@ -448,28 +448,42 @@ gltfLoader.load(
     const modelCentre = finalBox.getCenter(new THREE.Vector3());
     const modelSize   = finalBox.getSize(new THREE.Vector3());
 
-    // Try several spawn candidates from high above, pick first floor hit
-    const spawnCandidates = [
-      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z),
-      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z + modelSize.z * 0.2),
-      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z - modelSize.z * 0.2),
-      new THREE.Vector3(modelCentre.x + 2,   finalBox.max.y + 5, modelCentre.z),
-      new THREE.Vector3(modelCentre.x - 2,   finalBox.max.y + 5, modelCentre.z),
-    ];
+    // Cast downward rays from INSIDE the model (at 30%, 40%, 50% height)
+    // to find an interior floor rather than landing on the roof
+    const spawnRay = new THREE.Raycaster();
+    spawnRay.far = modelSize.y;
+
+    const xOffsets = [0, modelSize.x * 0.15, -modelSize.x * 0.15];
+    const zOffsets = [0, modelSize.z * 0.15, -modelSize.z * 0.15, modelSize.z * 0.3, -modelSize.z * 0.3];
+    const yFractions = [0.35, 0.4, 0.45, 0.3, 0.25]; // cast from these fractions of model height
 
     let spawnPos = null;
-    for (const candidate of spawnCandidates) {
-      spawnPos = findFloorBelow(candidate);
-      if (spawnPos) break;
+    outer:
+    for (const yFrac of yFractions) {
+      for (const xOff of xOffsets) {
+        for (const zOff of zOffsets) {
+          const origin = new THREE.Vector3(
+            modelCentre.x + xOff,
+            finalBox.min.y + modelSize.y * yFrac,
+            modelCentre.z + zOff
+          );
+          spawnRay.set(origin, new THREE.Vector3(0, -1, 0));
+          const hits = spawnRay.intersectObjects(collisionMeshes, true);
+          if (hits.length > 0) {
+            spawnPos = hits[0].point;
+            break outer;
+          }
+        }
+      }
     }
 
     if (spawnPos) {
       camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
     } else {
-      // Fallback: place at model centre at a reasonable height
+      // Fallback: floor level + player height
       camera.position.set(modelCentre.x, finalBox.min.y + PLAYER_HEIGHT + 0.1, modelCentre.z);
     }
-    console.log('Spawn position:', camera.position);
+    console.log('Spawn position:', camera.position, 'Floor hit:', spawnPos);
 
     setLoadStatus('Ready.', 100);
     modelLoaded = true;
