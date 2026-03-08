@@ -443,13 +443,33 @@ gltfLoader.load(
 
     scene.add(model);
 
-    // Place player on floor
-    const spawnPos = findFloorBelow(new THREE.Vector3(0, 5, 2));
+    // Compute model bounds after final positioning
+    const finalBox = new THREE.Box3().setFromObject(model);
+    const modelCentre = finalBox.getCenter(new THREE.Vector3());
+    const modelSize   = finalBox.getSize(new THREE.Vector3());
+
+    // Try several spawn candidates from high above, pick first floor hit
+    const spawnCandidates = [
+      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z),
+      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z + modelSize.z * 0.2),
+      new THREE.Vector3(modelCentre.x,       finalBox.max.y + 5, modelCentre.z - modelSize.z * 0.2),
+      new THREE.Vector3(modelCentre.x + 2,   finalBox.max.y + 5, modelCentre.z),
+      new THREE.Vector3(modelCentre.x - 2,   finalBox.max.y + 5, modelCentre.z),
+    ];
+
+    let spawnPos = null;
+    for (const candidate of spawnCandidates) {
+      spawnPos = findFloorBelow(candidate);
+      if (spawnPos) break;
+    }
+
     if (spawnPos) {
       camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
     } else {
-      camera.position.set(0, PLAYER_HEIGHT, 2);
+      // Fallback: place at model centre at a reasonable height
+      camera.position.set(modelCentre.x, finalBox.min.y + PLAYER_HEIGHT + 0.1, modelCentre.z);
     }
+    console.log('Spawn position:', camera.position);
 
     setLoadStatus('Ready.', 100);
     modelLoaded = true;
@@ -476,10 +496,18 @@ gltfLoader.load(
 
 // ─── Floor finder ─────────────────────────────────────────────────────────────
 function findFloorBelow(pos) {
-  floorRaycaster.set(pos, new THREE.Vector3(0, -1, 0));
-  floorRaycaster.far = 20;
-  const hits = floorRaycaster.intersectObjects(collisionMeshes, false);
-  if (hits.length > 0) return hits[0].point;
+  const ray = new THREE.Raycaster();
+  ray.set(pos, new THREE.Vector3(0, -1, 0));
+  ray.far = 200;
+  // Use recursive=true so it hits nested mesh children
+  const hits = ray.intersectObjects(collisionMeshes, true);
+  // Find the highest floor hit below the spawn point
+  const floorHits = hits.filter(h => h.point.y < pos.y);
+  if (floorHits.length > 0) {
+    // Sort by distance, pick closest (highest floor)
+    floorHits.sort((a, b) => a.distance - b.distance);
+    return floorHits[0].point;
+  }
   return null;
 }
 
@@ -614,7 +642,7 @@ function updatePlayer(dt) {
   let blocked = false;
   for (let i = 0; i < wallDirs.length; i++) {
     wallRaycasters[i].set(footPos, wallDirs[i]);
-    const hits = wallRaycasters[i].intersectObjects(collisionMeshes, false);
+    const hits = wallRaycasters[i].intersectObjects(collisionMeshes, true);
     if (hits.length > 0 && hits[0].distance < PLAYER_RADIUS) {
       const normal = hits[0].face?.normal?.clone() ?? wallDirs[i].clone().negate();
       normal.y = 0;
@@ -638,7 +666,7 @@ function updatePlayer(dt) {
   rayOrigin.y += 0.5; // cast from slightly above feet
   floorRaycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
   floorRaycaster.far = FLOOR_SNAP_DIST + 0.5 + 1;
-  const floorHits = floorRaycaster.intersectObjects(collisionMeshes, false);
+  const floorHits = floorRaycaster.intersectObjects(collisionMeshes, true);
 
   onGround = false;
   if (floorHits.length > 0) {
@@ -656,7 +684,7 @@ function updatePlayer(dt) {
 
   // Ceiling detection
   const ceilRaycaster = new THREE.Raycaster(proposed, new THREE.Vector3(0, 1, 0), 0, 0.2);
-  const ceilHits = ceilRaycaster.intersectObjects(collisionMeshes, false);
+  const ceilHits = ceilRaycaster.intersectObjects(collisionMeshes, true);
   if (ceilHits.length > 0) {
     verticalVel = Math.min(verticalVel, 0);
   }
