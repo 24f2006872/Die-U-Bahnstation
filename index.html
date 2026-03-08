@@ -360,10 +360,10 @@ scene.add(dirLight);
 
 // ─── Collision system ─────────────────────────────────────────────────────────
 const collisionMeshes = [];
-const PLAYER_RADIUS   = 0.35;
-const PLAYER_HEIGHT   = 1.7;
-const STEP_HEIGHT     = 0.45;
-const FLOOR_SNAP_DIST = 2.5;
+let PLAYER_RADIUS   = 0.05;   // will be scaled to model
+let PLAYER_HEIGHT   = 0.44;   // will be scaled to model
+let STEP_HEIGHT     = 0.08;
+let FLOOR_SNAP_DIST = 0.5;
 
 // Down-cast raycaster for floor detection
 const floorRaycaster = new THREE.Raycaster();
@@ -390,6 +390,7 @@ const gltfLoader = new GLTFLoader();
 gltfLoader.setDRACOLoader(dracoLoader);
 
 let modelLoaded = false;
+let modelSize = new THREE.Vector3(20, 5, 20); // default, updated after load
 
 function setLoadStatus(msg, pct) {
   loadingStatus.textContent = msg;
@@ -446,42 +447,38 @@ gltfLoader.load(
     // Compute model bounds after final positioning
     const finalBox = new THREE.Box3().setFromObject(model);
     const modelCentre = finalBox.getCenter(new THREE.Vector3());
-    const modelSize   = finalBox.getSize(new THREE.Vector3());
+    modelSize = finalBox.getSize(new THREE.Vector3());
 
     console.log('Model bounds:', 
       'min y:', finalBox.min.y.toFixed(3), 
       'max y:', finalBox.max.y.toFixed(3),
-      'centre:', modelCentre.x.toFixed(2), modelCentre.y.toFixed(2), modelCentre.z.toFixed(2),
       'size:', modelSize.x.toFixed(2), modelSize.y.toFixed(2), modelSize.z.toFixed(2)
     );
 
-    // Cast from many heights and log ALL hits to find interior floor
+    // Scale player to model — station is ~1.56 units tall
+    PLAYER_HEIGHT   = modelSize.y * 0.28;   // eye height ≈ 28% of ceiling
+    PLAYER_RADIUS   = modelSize.x * 0.03;
+    STEP_HEIGHT     = modelSize.y * 0.06;
+    FLOOR_SNAP_DIST = modelSize.y * 0.4;
+    floorRaycaster.far = FLOOR_SNAP_DIST + 0.2;
+    wallRaycasters.forEach(r => r.far = PLAYER_RADIUS + 0.01);
+
+    console.log('Player height:', PLAYER_HEIGHT.toFixed(3), 'radius:', PLAYER_RADIUS.toFixed(3));
+
+    // Cast from above — floor is the LOWEST hit
     const debugRay = new THREE.Raycaster();
     debugRay.far = 200;
-    const debugOrigin = new THREE.Vector3(modelCentre.x, finalBox.max.y + 2, modelCentre.z);
-    debugRay.set(debugOrigin, new THREE.Vector3(0, -1, 0));
+    debugRay.set(new THREE.Vector3(modelCentre.x, finalBox.max.y + 2, modelCentre.z), new THREE.Vector3(0, -1, 0));
     const allHits = debugRay.intersectObjects(collisionMeshes, true);
-    console.log('All downward hits from above:');
-    allHits.forEach((h, i) => console.log(`  hit[${i}] y=${h.point.y.toFixed(3)} name=${h.object.name} dist=${h.distance.toFixed(3)}`));
+    console.log('All hits:', allHits.map(h => `y=${h.point.y.toFixed(3)}`).join(', '));
 
-    // The interior floor is likely the LAST hit (bottom of station)
-    // or the hit after the roof (second hit = inside floor)
-    let spawnPos = null;
-    if (allHits.length >= 2) {
-      // Second hit from top = interior floor (first hit = roof)
-      spawnPos = allHits[1].point;
-      console.log('Using second hit as interior floor:', spawnPos.y.toFixed(3));
-    } else if (allHits.length === 1) {
-      spawnPos = allHits[0].point;
-      console.log('Only one hit, using it:', spawnPos.y.toFixed(3));
-    }
+    // Floor = lowest y hit
+    const floorY = allHits.length > 0
+      ? Math.min(...allHits.map(h => h.point.y))
+      : finalBox.min.y;
 
-    if (spawnPos) {
-      camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
-    } else {
-      camera.position.set(modelCentre.x, finalBox.min.y + PLAYER_HEIGHT + 0.1, modelCentre.z);
-    }
-    console.log('Spawn position:', camera.position.toArray().map(v => v.toFixed(3)));
+    console.log('Floor y:', floorY.toFixed(3), 'Spawn y:', (floorY + PLAYER_HEIGHT).toFixed(3));
+    camera.position.set(modelCentre.x, floorY + PLAYER_HEIGHT, modelCentre.z);
 
     setLoadStatus('Ready.', 100);
     modelLoaded = true;
@@ -603,7 +600,7 @@ function animate() {
 
 function updatePlayer(dt) {
   const sprinting = keys['ShiftLeft'] || keys['ShiftRight'];
-  const speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
+  const speed = sprinting ? modelSize.z * 0.08 : modelSize.z * 0.045;
   speedEl.textContent = sprinting ? 'SPRINTING' : 'WALKING';
 
   // Build movement direction from yaw only (no pitch in movement)
