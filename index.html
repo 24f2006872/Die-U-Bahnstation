@@ -448,42 +448,40 @@ gltfLoader.load(
     const modelCentre = finalBox.getCenter(new THREE.Vector3());
     const modelSize   = finalBox.getSize(new THREE.Vector3());
 
-    // Cast downward rays from INSIDE the model (at 30%, 40%, 50% height)
-    // to find an interior floor rather than landing on the roof
-    const spawnRay = new THREE.Raycaster();
-    spawnRay.far = modelSize.y;
+    console.log('Model bounds:', 
+      'min y:', finalBox.min.y.toFixed(3), 
+      'max y:', finalBox.max.y.toFixed(3),
+      'centre:', modelCentre.x.toFixed(2), modelCentre.y.toFixed(2), modelCentre.z.toFixed(2),
+      'size:', modelSize.x.toFixed(2), modelSize.y.toFixed(2), modelSize.z.toFixed(2)
+    );
 
-    const xOffsets = [0, modelSize.x * 0.15, -modelSize.x * 0.15];
-    const zOffsets = [0, modelSize.z * 0.15, -modelSize.z * 0.15, modelSize.z * 0.3, -modelSize.z * 0.3];
-    const yFractions = [0.35, 0.4, 0.45, 0.3, 0.25]; // cast from these fractions of model height
+    // Cast from many heights and log ALL hits to find interior floor
+    const debugRay = new THREE.Raycaster();
+    debugRay.far = 200;
+    const debugOrigin = new THREE.Vector3(modelCentre.x, finalBox.max.y + 2, modelCentre.z);
+    debugRay.set(debugOrigin, new THREE.Vector3(0, -1, 0));
+    const allHits = debugRay.intersectObjects(collisionMeshes, true);
+    console.log('All downward hits from above:');
+    allHits.forEach((h, i) => console.log(`  hit[${i}] y=${h.point.y.toFixed(3)} name=${h.object.name} dist=${h.distance.toFixed(3)}`));
 
+    // The interior floor is likely the LAST hit (bottom of station)
+    // or the hit after the roof (second hit = inside floor)
     let spawnPos = null;
-    outer:
-    for (const yFrac of yFractions) {
-      for (const xOff of xOffsets) {
-        for (const zOff of zOffsets) {
-          const origin = new THREE.Vector3(
-            modelCentre.x + xOff,
-            finalBox.min.y + modelSize.y * yFrac,
-            modelCentre.z + zOff
-          );
-          spawnRay.set(origin, new THREE.Vector3(0, -1, 0));
-          const hits = spawnRay.intersectObjects(collisionMeshes, true);
-          if (hits.length > 0) {
-            spawnPos = hits[0].point;
-            break outer;
-          }
-        }
-      }
+    if (allHits.length >= 2) {
+      // Second hit from top = interior floor (first hit = roof)
+      spawnPos = allHits[1].point;
+      console.log('Using second hit as interior floor:', spawnPos.y.toFixed(3));
+    } else if (allHits.length === 1) {
+      spawnPos = allHits[0].point;
+      console.log('Only one hit, using it:', spawnPos.y.toFixed(3));
     }
 
     if (spawnPos) {
       camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
     } else {
-      // Fallback: floor level + player height
       camera.position.set(modelCentre.x, finalBox.min.y + PLAYER_HEIGHT + 0.1, modelCentre.z);
     }
-    console.log('Spawn position:', camera.position, 'Floor hit:', spawnPos);
+    console.log('Spawn position:', camera.position.toArray().map(v => v.toFixed(3)));
 
     setLoadStatus('Ready.', 100);
     modelLoaded = true;
