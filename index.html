@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>U-Bahnstation Berlin — FPS Explorer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* Crosshair */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    #crosshair.visible { opacity: 1; }
+    #crosshair::before,
+    #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255,255,255,0.7);
+    }
+    #crosshair::before {
+      width: 14px; height: 1px;
+      top: 0; left: -7px;
+    }
+    #crosshair::after {
+      width: 1px; height: 14px;
+      top: -7px; left: 0;
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.5);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      pointer-events: none;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    #hud.visible { opacity: 1; }
+
+    #speed-indicator {
+      position: fixed;
+      top: 20px;
+      right: 24px;
+      color: rgba(255,220,80,0.6);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      pointer-events: none;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    #speed-indicator.visible { opacity: 1; }
+
+    /* Loading Screen */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.8s ease;
+    }
+    #loading.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #loading-title {
+      font-size: clamp(18px, 3vw, 32px);
+      color: #fff;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    #loading-sub {
+      font-size: 11px;
+      color: rgba(255,220,80,0.7);
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      margin-bottom: 48px;
+    }
+    #loading-bar-wrap {
+      width: 260px;
+      height: 2px;
+      background: rgba(255,255,255,0.1);
+      position: relative;
+    }
+    #loading-bar {
+      height: 100%;
+      background: rgba(255,220,80,0.9);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    #loading-pct {
+      position: absolute;
+      right: 0;
+      top: 8px;
+      font-size: 9px;
+      color: rgba(255,220,80,0.6);
+      letter-spacing: 0.2em;
+    }
+    #loading-status {
+      margin-top: 24px;
+      font-size: 9px;
+      color: rgba(255,255,255,0.3);
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+    }
+
+    /* Start overlay */
+    #start-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      backdrop-filter: blur(4px);
+      transition: opacity 0.5s;
+    }
+    #start-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #start-title {
+      font-size: clamp(22px, 4vw, 48px);
+      color: #fff;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    #start-sub {
+      font-size: 11px;
+      color: rgba(255,220,80,0.8);
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      margin-bottom: 52px;
+    }
+    #start-btn {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.4);
+      color: #fff;
+      padding: 14px 44px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #start-btn:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,220,80,0.7);
+      color: rgba(255,220,80,0.9);
+    }
+    .controls-hint {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px 32px;
+      color: rgba(255,255,255,0.35);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-align: left;
+    }
+    .controls-hint span { color: rgba(255,220,80,0.6); }
+
+    /* Paused overlay */
+    #pause-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      backdrop-filter: blur(3px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    #pause-overlay.visible {
+      opacity: 1;
+      pointer-events: all;
+    }
+    #pause-text {
+      color: #fff;
+      font-size: 13px;
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+    }
+
+    /* Vignette */
+    #vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="loading-title">U-Bahnstation</div>
+  <div id="loading-sub">Berlin · Digital Twin</div>
+  <div id="loading-bar-wrap">
+    <div id="loading-bar"></div>
+    <div id="loading-pct">0%</div>
+  </div>
+  <div id="loading-status">Initialising renderer…</div>
+</div>
+
+<div id="start-overlay" class="hidden" style="opacity:0; pointer-events:none;">
+  <div id="start-title">U-Bahnstation</div>
+  <div id="start-sub">Berlin · Digital Twin Explorer</div>
+  <button id="start-btn">Enter Station</button>
+  <div class="controls-hint">
+    <div><span>W A S D</span> — Move</div>
+    <div><span>Mouse</span> — Look</div>
+    <div><span>Shift</span> — Sprint</div>
+    <div><span>Esc</span> — Pause</div>
+  </div>
+</div>
+
+<div id="pause-overlay">
+  <div id="pause-text">— Paused — Click to resume</div>
+</div>
+
+<div id="canvas-container"></div>
+<div id="crosshair"></div>
+<div id="hud">W A S D · Move &nbsp;|&nbsp; Mouse · Look &nbsp;|&nbsp; Shift · Sprint</div>
+<div id="speed-indicator" id="speed-indicator">WALKING</div>
+<div id="vignette"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+const loadingEl      = document.getElementById('loading');
+const loadingBar     = document.getElementById('loading-bar');
+const loadingPct     = document.getElementById('loading-pct');
+const loadingStatus  = document.getElementById('loading-status');
+const startOverlay   = document.getElementById('start-overlay');
+const startBtn       = document.getElementById('start-btn');
+const pauseOverlay   = document.getElementById('pause-overlay');
+const crosshair      = document.getElementById('crosshair');
+const hud            = document.getElementById('hud');
+const speedEl        = document.getElementById('speed-indicator');
+const container      = document.getElementById('canvas-container');
+
+// ─── Renderer ─────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+// ─── Scene ────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x080808);
+scene.fog = new THREE.FogExp2(0x080808, 0.018);
+
+// ─── Camera ───────────────────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 300);
+camera.position.set(0, 1.7, 0);
+
+// ─── Lighting ─────────────────────────────────────────────────────────────────
+const ambientLight = new THREE.AmbientLight(0xffeedd, 0.4);
+scene.add(ambientLight);
+
+// Platform fluorescent strips
+const fluorescent1 = new THREE.RectAreaLight(0xfff5e0, 4, 20, 0.5);
+fluorescent1.position.set(0, 4.5, 0);
+fluorescent1.rotation.x = -Math.PI / 2;
+scene.add(fluorescent1);
+
+const fluorescent2 = new THREE.RectAreaLight(0xfff5e0, 4, 20, 0.5);
+fluorescent2.position.set(0, 4.5, -8);
+fluorescent2.rotation.x = -Math.PI / 2;
+scene.add(fluorescent2);
+
+// Warm point lights mimicking station lamps
+const warmLights = [
+  { pos: [0, 3.5, 4],  color: 0xffcc66, intensity: 3 },
+  { pos: [0, 3.5, -4], color: 0xffcc66, intensity: 3 },
+  { pos: [0, 3.5, -12],color: 0xffcc66, intensity: 3 },
+  { pos: [5, 3.5, 0],  color: 0xffd488, intensity: 2 },
+  { pos: [-5,3.5, 0],  color: 0xffd488, intensity: 2 },
+];
+warmLights.forEach(({ pos, color, intensity }) => {
+  const l = new THREE.PointLight(color, intensity, 18, 2);
+  l.position.set(...pos);
+  scene.add(l);
+});
+
+// Directional for general fill
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+dirLight.position.set(5, 10, 5);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 0.1;
+dirLight.shadow.camera.far = 60;
+dirLight.shadow.camera.left = dirLight.shadow.camera.bottom = -30;
+dirLight.shadow.camera.right = dirLight.shadow.camera.top = 30;
+scene.add(dirLight);
+
+// ─── Collision system ─────────────────────────────────────────────────────────
+const collisionMeshes = [];
+const PLAYER_RADIUS   = 0.35;
+const PLAYER_HEIGHT   = 1.7;
+const STEP_HEIGHT     = 0.45;
+const FLOOR_SNAP_DIST = 2.5;
+
+// Down-cast raycaster for floor detection
+const floorRaycaster = new THREE.Raycaster();
+floorRaycaster.near = 0;
+floorRaycaster.far = FLOOR_SNAP_DIST + 1;
+
+// Horizontal raycasters for wall collision (8 directions)
+const wallRaycasters = Array.from({ length: 8 }, () => {
+  const r = new THREE.Raycaster();
+  r.near = 0;
+  r.far = PLAYER_RADIUS + 0.05;
+  return r;
+});
+const wallDirs = Array.from({ length: 8 }, (_, i) => {
+  const angle = (i / 8) * Math.PI * 2;
+  return new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+});
+
+// ─── GLB Loader ───────────────────────────────────────────────────────────────
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/libs/draco/');
+
+const gltfLoader = new GLTFLoader();
+gltfLoader.setDRACOLoader(dracoLoader);
+
+let modelLoaded = false;
+
+function setLoadStatus(msg, pct) {
+  loadingStatus.textContent = msg;
+  loadingBar.style.width = pct + '%';
+  loadingPct.textContent = Math.round(pct) + '%';
+}
+
+setLoadStatus('Loading station model…', 5);
+
+gltfLoader.load(
+  'station.glb',
+  (gltf) => {
+    setLoadStatus('Processing geometry…', 80);
+
+    const model = gltf.scene;
+
+    // Auto-scale and centre
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 20 / maxDim;
+    model.scale.setScalar(scale);
+    model.position.sub(centre.multiplyScalar(scale));
+
+    // Lift model so floor is at y=0
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y -= box2.min.y;
+
+    setLoadStatus('Building collision meshes…', 88);
+
+    // Traverse and setup materials + collision
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+
+        // Improve material quality
+        if (child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(m => {
+            if (m.map) m.map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            m.needsUpdate = true;
+          });
+        }
+
+        // All meshes participate in collision
+        collisionMeshes.push(child);
+      }
+    });
+
+    scene.add(model);
+
+    // Place player on floor
+    const spawnPos = findFloorBelow(new THREE.Vector3(0, 5, 2));
+    if (spawnPos) {
+      camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
+    } else {
+      camera.position.set(0, PLAYER_HEIGHT, 2);
+    }
+
+    setLoadStatus('Ready.', 100);
+    modelLoaded = true;
+
+    setTimeout(() => {
+      loadingEl.classList.add('fade-out');
+      setTimeout(() => {
+        loadingEl.style.display = 'none';
+        startOverlay.style.opacity = '1';
+        startOverlay.style.pointerEvents = 'all';
+        startOverlay.classList.remove('hidden');
+      }, 800);
+    }, 400);
+  },
+  (xhr) => {
+    const pct = 5 + (xhr.loaded / xhr.total) * 70;
+    setLoadStatus(`Loading model… ${Math.round(xhr.loaded / 1024)}kb`, pct);
+  },
+  (err) => {
+    setLoadStatus('Error loading model: ' + err.message, 0);
+    console.error(err);
+  }
+);
+
+// ─── Floor finder ─────────────────────────────────────────────────────────────
+function findFloorBelow(pos) {
+  floorRaycaster.set(pos, new THREE.Vector3(0, -1, 0));
+  floorRaycaster.far = 20;
+  const hits = floorRaycaster.intersectObjects(collisionMeshes, false);
+  if (hits.length > 0) return hits[0].point;
+  return null;
+}
+
+// ─── Player state ─────────────────────────────────────────────────────────────
+const keys = {};
+let isLocked = false;
+let isPaused = false;
+let yaw = 0, pitch = 0;
+
+// Velocity & momentum
+const velocity      = new THREE.Vector3();
+const acceleration  = new THREE.Vector3();
+const WALK_SPEED    = 4.5;
+const SPRINT_SPEED  = 8.5;
+const FRICTION      = 8.0;
+const GRAVITY       = 18.0;
+let   verticalVel   = 0;
+let   onGround      = false;
+let   groundY       = 0;
+
+// Head bobbing
+let bobTime   = 0;
+let bobAmount = 0;
+const BOB_FREQ   = 1.8;
+const BOB_SPREAD = 0.038;
+
+// ─── Pointer Lock ─────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', () => {
+  startOverlay.style.opacity = '0';
+  startOverlay.style.pointerEvents = 'none';
+  setTimeout(() => { startOverlay.classList.add('hidden'); }, 500);
+  renderer.domElement.requestPointerLock();
+});
+
+pauseOverlay.addEventListener('click', () => {
+  if (isPaused) renderer.domElement.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  isLocked = document.pointerLockElement === renderer.domElement;
+  if (isLocked) {
+    isPaused = false;
+    pauseOverlay.classList.remove('visible');
+    crosshair.classList.add('visible');
+    hud.classList.add('visible');
+    speedEl.classList.add('visible');
+  } else {
+    if (modelLoaded && startOverlay.classList.contains('hidden')) {
+      isPaused = true;
+      pauseOverlay.classList.add('visible');
+    }
+    crosshair.classList.remove('visible');
+  }
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isLocked) return;
+  const sens = 0.0018;
+  yaw   -= e.movementX * sens;
+  pitch -= e.movementY * sens;
+  pitch = Math.max(-Math.PI * 0.44, Math.min(Math.PI * 0.44, pitch));
+});
+
+document.addEventListener('keydown', (e) => { keys[e.code] = true; });
+document.addEventListener('keyup',   (e) => { keys[e.code] = false; });
+
+// ─── Clock ────────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+// ─── Main loop ────────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (isLocked && modelLoaded && !isPaused) {
+    updatePlayer(dt);
+  }
+
+  renderer.render(scene, camera);
+}
+
+function updatePlayer(dt) {
+  const sprinting = keys['ShiftLeft'] || keys['ShiftRight'];
+  const speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
+  speedEl.textContent = sprinting ? 'SPRINTING' : 'WALKING';
+
+  // Build movement direction from yaw only (no pitch in movement)
+  const forward  = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right    = new THREE.Vector3( Math.cos(yaw), 0, -Math.sin(yaw));
+
+  const move = new THREE.Vector3();
+  if (keys['KeyW'] || keys['ArrowUp'])    move.addScaledVector(forward,  1);
+  if (keys['KeyS'] || keys['ArrowDown'])  move.addScaledVector(forward, -1);
+  if (keys['KeyA'] || keys['ArrowLeft'])  move.addScaledVector(right,   -1);
+  if (keys['KeyD'] || keys['ArrowRight']) move.addScaledVector(right,    1);
+
+  const moving = move.lengthSq() > 0;
+  if (moving) move.normalize();
+
+  // Apply acceleration
+  acceleration.copy(move).multiplyScalar(speed * 12);
+  velocity.addScaledVector(acceleration, dt);
+
+  // Friction
+  const drag = Math.pow(FRICTION, -dt);
+  velocity.x *= drag; velocity.z *= drag;
+
+  // Clamp horizontal speed
+  const hSpeed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  if (hSpeed > speed) {
+    velocity.x = (velocity.x / hSpeed) * speed;
+    velocity.z = (velocity.z / hSpeed) * speed;
+  }
+
+  // Gravity
+  if (!onGround) {
+    verticalVel -= GRAVITY * dt;
+  } else {
+    verticalVel = Math.max(verticalVel, 0);
+  }
+
+  // Proposed position
+  const proposed = camera.position.clone();
+  proposed.x += velocity.x * dt;
+  proposed.z += velocity.z * dt;
+  proposed.y += verticalVel * dt;
+
+  // Wall collision (horizontal)
+  const footPos = proposed.clone();
+  footPos.y -= PLAYER_HEIGHT * 0.5;
+
+  let blocked = false;
+  for (let i = 0; i < wallDirs.length; i++) {
+    wallRaycasters[i].set(footPos, wallDirs[i]);
+    const hits = wallRaycasters[i].intersectObjects(collisionMeshes, false);
+    if (hits.length > 0 && hits[0].distance < PLAYER_RADIUS) {
+      const normal = hits[0].face?.normal?.clone() ?? wallDirs[i].clone().negate();
+      normal.y = 0;
+      normal.normalize();
+      // Push player out of wall
+      const overlap = PLAYER_RADIUS - hits[0].distance;
+      proposed.x += normal.x * overlap;
+      proposed.z += normal.z * overlap;
+      // Kill velocity in wall normal direction
+      const dot = velocity.dot(normal);
+      if (dot < 0) {
+        velocity.x -= normal.x * dot;
+        velocity.z -= normal.z * dot;
+      }
+      blocked = true;
+    }
+  }
+
+  // Floor detection
+  const rayOrigin = proposed.clone();
+  rayOrigin.y += 0.5; // cast from slightly above feet
+  floorRaycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+  floorRaycaster.far = FLOOR_SNAP_DIST + 0.5 + 1;
+  const floorHits = floorRaycaster.intersectObjects(collisionMeshes, false);
+
+  onGround = false;
+  if (floorHits.length > 0) {
+    const fDist = floorHits[0].distance;
+    const fY    = floorHits[0].point.y;
+    const feetY = proposed.y - PLAYER_HEIGHT;
+
+    if (feetY <= fY + STEP_HEIGHT && fDist < FLOOR_SNAP_DIST + 1) {
+      proposed.y = fY + PLAYER_HEIGHT;
+      onGround = true;
+      groundY = fY;
+      verticalVel = 0;
+    }
+  }
+
+  // Ceiling detection
+  const ceilRaycaster = new THREE.Raycaster(proposed, new THREE.Vector3(0, 1, 0), 0, 0.2);
+  const ceilHits = ceilRaycaster.intersectObjects(collisionMeshes, false);
+  if (ceilHits.length > 0) {
+    verticalVel = Math.min(verticalVel, 0);
+  }
+
+  // Safety: don't fall below world floor
+  if (proposed.y < PLAYER_HEIGHT - 2) {
+    proposed.y = PLAYER_HEIGHT;
+    verticalVel = 0;
+    onGround = true;
+  }
+
+  camera.position.copy(proposed);
+
+  // ── Head bob ──────────────────────────────────────────────────────────────
+  const hVel = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+  const targetBob = onGround && hVel > 0.5 ? (sprinting ? 1.4 : 1.0) : 0;
+  bobAmount += (targetBob - bobAmount) * dt * 6;
+
+  if (bobAmount > 0.01) {
+    bobTime += dt * BOB_FREQ * (sprinting ? 1.5 : 1.0) * Math.PI * 2;
+  }
+
+  const bobOffsetY = Math.sin(bobTime) * BOB_SPREAD * bobAmount;
+  const bobOffsetX = Math.cos(bobTime * 0.5) * BOB_SPREAD * 0.5 * bobAmount;
+
+  // ── Camera orientation ────────────────────────────────────────────────────
+  const euler = new THREE.Euler(pitch + bobOffsetY * 0.3, yaw, bobOffsetX, 'YXZ');
+  camera.quaternion.setFromEuler(euler);
+
+  // Apply bob as position offset
+  const right2 = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  camera.position.y += bobOffsetY;
+  camera.position.addScaledVector(right2, bobOffsetX);
+}
+
+// ─── Resize ───────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>
