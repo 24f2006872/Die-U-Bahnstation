@@ -709,24 +709,22 @@ function updatePlayer(dt) {
 
   // ── Head bob ──────────────────────────────────────────────────────────────
   const hVel = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
-  const targetBob = onGround && hVel > 0.5 ? (sprinting ? 1.4 : 1.0) : 0;
+  const targetBob = onGround && hVel > 0.01 ? (sprinting ? 1.4 : 1.0) : 0;
   bobAmount += (targetBob - bobAmount) * dt * 6;
 
   if (bobAmount > 0.01) {
     bobTime += dt * BOB_FREQ * (sprinting ? 1.5 : 1.0) * Math.PI * 2;
   }
 
-  const bobOffsetY = Math.sin(bobTime) * BOB_SPREAD * bobAmount;
-  const bobOffsetX = Math.cos(bobTime * 0.5) * BOB_SPREAD * 0.5 * bobAmount;
+  const bobScale = PLAYER_HEIGHT * 0.04; // scale bob to model size
+  const bobOffsetY = Math.sin(bobTime) * bobScale * bobAmount;
 
   // ── Camera orientation ────────────────────────────────────────────────────
-  const euler = new THREE.Euler(pitch + bobOffsetY * 0.3, yaw, bobOffsetX, 'YXZ');
+  const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
   camera.quaternion.setFromEuler(euler);
 
-  // Apply bob as position offset
-  const right2 = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  // Apply vertical bob only — no lateral sway to avoid zigzag feel
   camera.position.y += bobOffsetY;
-  camera.position.addScaledVector(right2, bobOffsetX);
 }
 
 // ─── Resize ───────────────────────────────────────────────────────────────────
